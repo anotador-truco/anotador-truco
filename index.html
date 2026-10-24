@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Anotador de Truco</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e271e">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{color-scheme:light;--bg:#e6eee1;--panel:#f7faf4;--ink:#16301f;--muted:#5a7160;--line:#c2d0bd;--stick:#a8742f;--head:#c23b2a;--btn:#1d6b43;--btn-ink:#fff;--g:50px}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0e271e;--panel:#15372a;--ink:#eef3e6;--muted:#9bb5a3;--line:#2a5642;--stick:#e8d6a6;--head:#e4543f;--btn:#e8d6a6;--btn-ink:#0e271e}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;gap:8px;padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom));overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:none;padding:9px 12px;font-size:14px}
+.seg button[aria-pressed=true]{background:var(--btn);color:var(--btn-ink);font-weight:600}
+.ic{margin-left:auto;border:1px solid var(--line);background:var(--panel);border-radius:10px;width:42px;height:40px;font-size:18px}
+.board{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n,2),1fr);gap:8px}
+.col{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
+.name{width:100%;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);text-align:center;font:600 16px system-ui,sans-serif;padding:4px 0}
+.name:focus-visible,button:focus-visible{outline:2px solid var(--btn);outline-offset:2px}
+.score{text-align:center;font:700 clamp(56px,16vw,88px)/1.05 Georgia,serif;margin-top:6px}
+.wins{text-align:center;font-size:13px;color:var(--muted)}
+.sticks{flex:1;min-height:0;overflow:auto;display:flex;flex-wrap:wrap;align-content:flex-start;justify-content:center;gap:6px;margin:8px 0}
+.sticks svg{width:var(--g);height:var(--g);flex:none}
+.sticks line{stroke:var(--stick);stroke-width:5;stroke-linecap:round}
+.sticks circle{fill:var(--head)}
+.sticks g{transform-box:fill-box;transform-origin:center}
+.sticks .pop{animation:pop .22s ease-out}
+@keyframes pop{from{opacity:0;transform:scale(.6)}}
+@media (prefers-reduced-motion:reduce){.sticks .pop{animation:none}}
+.div{flex-basis:100%;text-align:center;font-size:12px;color:var(--muted);border-top:1px dashed var(--line);padding-top:2px}
+.add{height:64px;border:0;border-radius:12px;background:var(--btn);color:var(--btn-ink);font-size:28px;font-weight:700}
+.add:active{transform:scale(.97)}
+.add:disabled{opacity:.4}
+.foot{display:flex;gap:8px}
+.foot button{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.foot button:disabled{opacity:.45}
+.win{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px}
+.win[hidden]{display:none}
+.win>div{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;text-align:center;max-width:320px;width:100%}
+.win h2{margin:0 0 6px;font:700 28px Georgia,serif}
+.win p{margin:0 0 16px;color:var(--muted)}
+.win button{width:100%;padding:13px;margin-top:8px;border-radius:10px;border:1px solid var(--line);background:none}
+.win button.big{background:var(--btn);color:var(--btn-ink);border:0;font-weight:700}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="seg"><button data-act="mode" data-v="2">2 equipos</button><button data-act="mode" data-v="3">3 jugadores</button></div>
+  <div class="seg"><button data-act="target" data-v="15">A 15</button><button data-act="target" data-v="30">A 30</button></div>
+  <button class="ic" id="theme" data-act="theme" aria-label="Cambiar tema">☾</button>
+</div>
+<main class="board" id="board"></main>
+<div class="foot"><button id="undo" data-act="undo">Deshacer</button><button data-act="reset">Reiniciar todo</button></div>
+<div class="win" id="win" hidden></div>
+<script>
+const KEY='truco-v1';
+const DEF=()=>({mode:2,target:30,names:{2:['Nosotros','Ellos'],3:['Jugador 1','Jugador 2','Jugador 3']},pts:[0,0,0],wins:[0,0,0],over:null,last:null,hist:[],theme:null});
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+let S=load();
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.pts&&s.names)return Object.assign(DEF(),s)}catch(e){}return DEF()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function snap(){S.hist.push({pts:[...S.pts],wins:[...S.wins],over:S.over,last:S.last});if(S.hist.length>200)S.hist.shift()}
+function buzz(){try{navigator.vibrate&&navigator.vibrate(15)}catch(e){}}
+async function keepAwake(){try{if('wakeLock' in navigator)await navigator.wakeLock.request('screen')}catch(e){}}
+
+const L=[[10,10,50,10],[50,10,50,50],[50,50,10,50],[10,50,10,10],[10,50,50,10]];
+function group(n,popIdx){
+  let s='<svg viewBox="0 0 60 60" aria-hidden="true">';
+  for(let k=0;k<n;k++){const [a,b,c,d]=L[k];
+    s+=`<g class="${k===popIdx?'pop':''}"><line x1="${a}" y1="${b}" x2="${c}" y2="${d}"/><circle cx="${a}" cy="${b}" r="3.6"/></g>`}
+  return s+'</svg>';
+}
+function sticks(p,i){
+  const full=Math.floor(p/5),rem=p%5,total=full+(rem?1:0);
+  let h=S.target===30&&p>0?'<div class="div">Malas</div>':'';
+  for(let g=0;g<total;g++){
+    const n=g<full?5:rem;
+    h+=group(n,S.last===i&&g===total-1?n-1:-1);
+    if(S.target===30&&g===2&&p>15)h+='<div class="div">Buenas</div>';
+  }
+  return h;
+}
+
+function render(){
+  const n=S.mode,ps=[...Array(n).keys()],names=S.names[n];
+  document.documentElement.style.setProperty('--g',n===2?'50px':'38px');
+  document.querySelectorAll('[data-act=mode]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===S.mode));
+  document.querySelectorAll('[data-act=target]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===S.target));
+  const board=$('board');board.style.setProperty('--n',n);
+  board.innerHTML=ps.map(i=>`<section class="col"><input class="name" data-i="${i}" value="${esc(names[i])}" maxlength="16" aria-label="Nombre"><div class="score">${S.pts[i]}</div><div class="wins">Partidas ganadas: ${S.wins[i]}</div><div class="sticks">${sticks(S.pts[i],i)}</div><button class="add" data-act="add" data-v="${i}" ${S.over!=null?'disabled':''}>+1</button></section>`).join('');
+  $('undo').disabled=!S.hist.length;
+  const w=$('win');
+  if(S.over!=null){
+    w.hidden=false;
+    w.innerHTML=`<div role="dialog" aria-modal="true"><h2>Ganó ${esc(names[S.over])}</h2><p>${ps.map(i=>esc(names[i])+' '+S.wins[i]).join(' · ')}</p><button class="big" data-act="new">Nueva partida</button><button data-act="undo">Deshacer último punto</button></div>`;
+  }else w.hidden=true;
+  save();
+}
+
+function add(i){
+  if(S.over!=null)return;
+  snap();S.pts[i]++;S.last=i;
+  if(S.pts[i]>=S.target){S.pts[i]=S.target;S.over=i;S.wins[i]++}
+  buzz();keepAwake();render();
+}
+function undo(){const h=S.hist.pop();if(!h)return;Object.assign(S,h);render()}
+function newGame(){snap();S.pts=[0,0,0];S.over=null;S.last=null;render()}
+function resetAll(){
+  if(!confirm('¿Reiniciar puntos y partidas ganadas?'))return;
+  S.pts=[0,0,0];S.wins=[0,0,0];S.over=null;S.last=null;S.hist=[];render();
+}
+function setMode(v){
+  if(v===S.mode)return;
+  if((S.pts.some(x=>x)||S.wins.some(x=>x))&&!confirm('Cambiar de modo reinicia el marcador. ¿Seguir?'))return;
+  S.mode=v;S.pts=[0,0,0];S.wins=[0,0,0];S.over=null;S.last=null;S.hist=[];render();
+}
+function setTarget(v){
+  if(v===S.target)return;
+  if(S.pts.some(x=>x)&&!confirm('Cambiar a '+v+' reinicia los puntos de esta partida. ¿Seguir?'))return;
+  snap();S.target=v;S.pts=[0,0,0];S.over=null;S.last=null;render();
+}
+
+function applyTheme(){
+  const t=S.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  document.documentElement.dataset.theme=t;
+  document.querySelector('meta[name=theme-color]').content=t==='dark'?'#0e271e':'#e6eee1';
+  $('theme').textContent=t==='dark'?'☀':'☾';
+}
+function toggleTheme(){S.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';applyTheme();save()}
+
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const a=b.dataset.act,v=+b.dataset.v;
+  if(a==='add')add(v);else if(a==='undo')undo();else if(a==='new')newGame();
+  else if(a==='reset')resetAll();else if(a==='mode')setMode(v);
+  else if(a==='target')setTarget(v);else if(a==='theme')toggleTheme();
+});
+document.addEventListener('input',e=>{
+  const el=e.target.closest('.name');if(!el)return;
+  S.names[S.mode][+el.dataset.i]=el.value;save();
+});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)keepAwake()});
+
+applyTheme();render();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
