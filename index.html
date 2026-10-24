@@ -19,6 +19,10 @@ button{font:inherit;color:inherit;cursor:pointer}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
 .seg button{border:0;background:none;padding:9px 12px;font-size:14px}
 .seg button[aria-pressed=true]{background:var(--btn);color:var(--btn-ink);font-weight:600}
+.target-form{display:flex;align-items:center;gap:6px;font-size:14px}
+.target-form input{width:52px;padding:9px 6px;text-align:center;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.target-form button{padding:9px 10px;background:var(--btn);color:var(--btn-ink);border:0;border-radius:10px;font:inherit}
+.target-form input:focus-visible{outline:2px solid var(--btn);outline-offset:2px}
 .ic{margin-left:auto;border:1px solid var(--line);background:var(--panel);border-radius:10px;width:42px;height:40px;font-size:18px}
 .board{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n,2),1fr);gap:8px}
 .col{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
@@ -54,6 +58,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 <div class="bar">
   <div class="seg"><button data-act="mode" data-v="2">2 equipos</button><button data-act="mode" data-v="3">3 jugadores</button></div>
   <div class="seg"><button data-act="target" data-v="15">A 15</button><button data-act="target" data-v="30">A 30</button></div>
+  <form class="target-form" id="target-form"><label for="target-score">Jugar a</label><input id="target-score" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" required aria-label="Puntaje de la partida" title="Elegí un número entero de 1 a 99"><button type="submit">Aplicar</button></form>
   <button class="ic" id="theme" data-act="theme" aria-label="Cambiar tema">☾</button>
 </div>
 <main class="board" id="board"></main>
@@ -67,7 +72,7 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 let S=load();
 function load(){try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.pts&&s.names)return Object.assign(DEF(),s)}catch(e){}return DEF()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-function snap(){S.hist.push({pts:[...S.pts],wins:[...S.wins],over:S.over,last:S.last});if(S.hist.length>200)S.hist.shift()}
+function snap(){S.hist.push({target:S.target,pts:[...S.pts],wins:[...S.wins],over:S.over,last:S.last});if(S.hist.length>200)S.hist.shift()}
 function buzz(){try{navigator.vibrate&&navigator.vibrate(15)}catch(e){}}
 async function keepAwake(){try{if('wakeLock' in navigator)await navigator.wakeLock.request('screen')}catch(e){}}
 
@@ -94,6 +99,7 @@ function render(){
   document.documentElement.style.setProperty('--g',n===2?'50px':'38px');
   document.querySelectorAll('[data-act=mode]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===S.mode));
   document.querySelectorAll('[data-act=target]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===S.target));
+  $('target-score').value=S.target;
   const board=$('board');board.style.setProperty('--n',n);
   board.innerHTML=ps.map(i=>`<section class="col"><input class="name" data-i="${i}" value="${esc(names[i])}" maxlength="16" aria-label="Nombre"><div class="score">${S.pts[i]}</div><div class="wins">Partidas ganadas: ${S.wins[i]}</div><div class="sticks">${sticks(S.pts[i],i)}</div><button class="add" data-act="add" data-v="${i}" ${S.over!=null?'disabled':''}>+1</button></section>`).join('');
   $('undo').disabled=!S.hist.length;
@@ -123,7 +129,9 @@ function setMode(v){
   S.mode=v;S.pts=[0,0,0];S.wins=[0,0,0];S.over=null;S.last=null;S.hist=[];render();
 }
 function setTarget(v){
+  if(!Number.isInteger(v)||v<1||v>99)return;
   if(v===S.target)return;
+
   if(S.pts.some(x=>x)&&!confirm('Cambiar a '+v+' reinicia los puntos de esta partida. ¿Seguir?'))return;
   snap();S.target=v;S.pts=[0,0,0];S.over=null;S.last=null;render();
 }
@@ -147,6 +155,15 @@ document.addEventListener('input',e=>{
   const el=e.target.closest('.name');if(!el)return;
   S.names[S.mode][+el.dataset.i]=el.value;save();
 });
+$('target-form').addEventListener('submit',e=>{
+  e.preventDefault();
+  const field=$('target-score'),value=Number(field.value);
+  field.setCustomValidity(Number.isInteger(value)&&value>=1&&value<=99?'':'Elegí un número entero de 1 a 99.');
+  if(!field.reportValidity())return;
+  setTarget(value);
+  field.value=S.target;
+});
+$('target-score').addEventListener('input',e=>e.target.setCustomValidity(''));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)keepAwake()});
 
 applyTheme();render();
